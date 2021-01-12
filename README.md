@@ -10,7 +10,7 @@ This project is will detect lane lines in video images using Python and OpenCV w
 
 ![Lane Detection in Python](project_video_preview.gif)
 
-The pipeline used to produce the output video is summarised. The full code for each item number below is included in the Jupyter Notebook using the same reference.
+The pipeline used to produce the output video is summarised. Only highlights are shown in this report. The full code for each item number below is included in the Jupyter Notebook using the same section number references.
 
 #### 1. Camera Calibration: 
 The output image from the camera has some distortion due to the camera lens. In order to accurately measure distances in a picture, it is necessary to remove the camera distortion.
@@ -58,10 +58,14 @@ def threshold_binary(img):
     grady = abs_sobel_thresh(img, orient='y', sobel_kernel=5, thresh=(50, 160))
     mag_binary = mag_thresh(img, sobel_kernel=7, mag_thresh=(50, 160))
     dir_binary = dir_threshold(img, sobel_kernel=15, thresh=(0.8, 1.3))
+
 ...
+
     combined_thresh[((gradx == 1) & (grady == 1)) | ((mag_binary == 1) & (dir_binary == 1))] = 1
     combined_hls=hls_color(img, s_thresh=(100, 255), sx_thresh=(40, 80))/255
+
  ...
+
     combined_thresh_hls=np.clip(combined_thresh_hls, a_min = 0, a_max = 1)        
     return combined_thresh_hls
 ```
@@ -144,103 +148,115 @@ This can then be plotted to show the pixels image, windows showing search area a
 
 
 #### 8. Regression Estimate Value Checks: 
-The left and right lane curves are verified for congruence, considering that the distance between the lanes is constant. The values are further averaged over the previous 10 image frames to reduce jaggedness and ensure the predicted path is consistent with the previous images.
+The left and right lane curves are verified for congruence, considering that the distance between the lanes is constant. 
+
+If the distance between the left and right lanes is too large or too small, this means that the lanes are either diverging or converging instead of being parallel. If this happens, the lane with a diverging value considering the previous ones is corrected with respect to the other lane.
+
+```
+def new_fit_check(lane,left_fit, right_fit, left_fitx, right_fitx):
+    #check if lane detection is too large or too small
+    if (np.mean(right_fit) - np.mean(left_fit)>24) or (np.mean(right_fit) - np.mean(left_fit)<10): #diverging too much
+        #greater left lane variation
+        if np.abs((np.mean(lane.left_fitx_smooth)-np.mean(left_fitx))) > np.abs((np.mean(lane.right_fitx_smooth)-np.mean(right_fitx))):
+            left_fitx = right_fitx - 58
+            left_fit[0] = right_fit[0]
+        #greater right lane variation
+        else:
+            right_fitx = left_fitx + 58
+            right_fit[0] = left_fit[0]
+    return left_fit, right_fit, left_fitx, right_fitx
+```
+The values are further averaged over the previous 10 image frames to reduce jaggedness and ensure the predicted path is consistent with the previous images.
+
 
 #### 9. Radius of Curvature: 
-The curvature radius is calculated according to the estimated lane curve and 2nd order polynomial coefficients.
-
-#### 10. Image Overlay: 
-An overlay fill is superimposed to the original image based on the lane curves identified.
-
-#### 11. Text Overlay: 
-The curvature radius value is overlayed to the image output.
+The curvature radius is calculated according to the estimated lane curve and 2nd order polynomial coefficients by entering A, B and C values calculated in Para. 7.
 
 
+![](https://latex.codecogs.com/svg.latex?\Large&space;R_(curve)=\frac{(1+(2Ay+B)^2)^{3/2}}{|2A|})
 
-Creating a great writeup:
-
-The goals / steps of this project are the following:
-
-* Compute the camera calibration matrix and distortion coefficients given a set of chessboard images.
-* Apply a distortion correction to raw images.
-* Use color transforms, gradients, etc., to create a thresholded binary image.
-* Apply a perspective transform to rectify binary image ("birds-eye view").
-* Detect lane pixels and fit to find the lane boundary.
-* Determine the curvature of the lane and vehicle position with respect to center.
-* Warp the detected lane boundaries back onto the original image.
-* Output visual display of the lane boundaries and numerical estimation of lane curvature and vehicle position.
-
-
-### Camera Calibration
-Briefly state how you computed the camera matrix and distortion coefficients. Provide an example of a distortion corrected calibration image.
-
-### Apply Inveserse Perspective Transform
-
-Apply inverse perspective transform on undistorted image.
-Inverse Perspective Mapping (IPM), we want to produce a birds-eye view image of the scene from the front-facing image plane.
-
-The image obtained by the car camera contains a large non-road area, such as sky, trees on roadside, etc. Globally processing of the image will increase the computational complexity and reduce the real-time capability.
-
-Furthermore, the invalid area will interfere the lane information and affect the detection accuracy. Therefore, the valid region within the image should be selected to eliminate the invalid information.
-
-Ref: https://medium.com/ai-in-plain-english/inverse-perspective-transformation-b62b5eedb44a
-
-### radius
-https://news.osu.edu/slow-down----those-lines-on-the-road-are-longer-than-you-think/
 
 Each dashed line measures 10 feet, and the empty spaces in-between measure 30 feet. So every time a car passes a new dashed line, the car has traveled 40 feet.
 
-In the picutre below, the distance from the camera to the end of lane detection is approximately 120feet long, and the width of 
+In Para. 2, the distance from the camera to the end of lane detection is approximately 120ft long and 12ft lane wide.
 
 Real world:
 length: 120ft
 width: 12ft
 
 Pixels: 240pixels
-width: 685-595 = 90pixels
+width: 90pixels
 
-This needs to be taken to account calculate the radius.
-
-
-
-
-Discussion
-Briefly discuss any problems / issues you faced in your implementation of this project. Where will your pipeline likely fail? What could you do to make it more robust?
+The bird's eye view lane representation is vertically compressed as the length/width ratio is 24/9 as opposed to 10/1 in the region of interest real-world representation.
+The factors are corrected to reflect correct radius measurements.
 
 
-    Images from .mp4 video are individually distilled and fed into an image processing pipeline.
-    Conversion to black & white to facilitate edge detection.
-    Canny processing of image in color to detect image edges.
-    Gaussian blur to smooth the edges.
-    Region of interest limits the area of edges detected in image.
+#### 10. Image Overlay: 
+An overlay fill is superimposed to the original image based on the lane curves identified.
+
+```
+def overlay_fill(img, left_fitx, right_fitx, ploty):
+    ... 
+    pts_left = np.array([np.transpose(np.vstack([left_fitx, ploty]))])
+    pts_right = np.array([np.flipud(np.transpose(np.vstack([right_fitx, ploty])))])
+    pts = np.hstack((pts_left.astype(int), pts_right.astype(int)))    
+    #filling pixels inside the polygon defined by "vertices" with the fill color    
+    cv2.fillPoly(mask, pts, ignore_mask_color)        
+    #returning the image only where mask pixels are nonzero
+    masked_img = cv2.bitwise_and(img_out, mask)
+    return masked_img
+```
+
+#### 11. Text Overlay: 
+The curvature radius value is overlayed to the image output.
+
+```
+def overlay_text(img, text_line1, text_line2, text_line3):
+    ...
+
+    font = cv2.FONT_HERSHEY_SIMPLEX   
+    org1 = (1300, 400) 
+    fontScale = 1
+    color1 = (0, 0, 255) 
+    thickness = 2
+    masked_img = cv2.putText(img, text_line1, org1, font,  
+                       fontScale, color1, thickness, cv2.LINE_AA)
+    ...
+
+    return masked_img
+```
 
 
+### Apply Inveserse Perspective Transform
 
-Results & Discussion
+In order to show the image overlay in perspective, an inverse transformation is applied to reflect the end result.
+```
+def warp_inverse(img_roi):
+    #source points: the entire borders are selected
+    src = np.float32([[0, 240], [1280, 240], [0, 0], [1280, 0]])
+    #destination points: the vanishing point is inverted to be directed to viewer point
+    dst = np.float32([[595, 240], [685, 240], [0, 0], [1280, 0]])
+    Minv = cv2.getPerspectiveTransform(dst, src) # Inverse transformation
+    img_warped_inv = cv2.warpPerspective(img_roi, Minv, (1280, 240)) # Image warping
+    return img_warped_inv
+```
 
-    Canny algorithm: The image processing was done fully in greyscale prior to applying Canny algorithm. This yielded better results than when directly applying from colour.
 
-    Gaussian blur: A smaller kernel size yielded much better results, probably due to processing in color.
+## Results & Discussion
 
-    Region of interest vertices are static and were selected based on the expected vehicle visibility of lanes. As the vertices are fixed, this severly limits the range of lane detection.
+#### 1. Sobel Operators: 
+Application of Sobel operators was shown to be effective and able to distinguish lanes in a wide variety of lighting and road conditions.
 
-    Applying the Hough Transform in the region of interest resulted in satisfactory identification of lines. This however, means that dashed lines were identified as individual lines.
+#### 2. Region of Interest: 
 
-    Hough Transform applied
+Region of interest vertices are static and were selected based on the expected vehicle visibility of lanes. As the vertices are fixed, this severly limits the range and accuracy of lane detection. The model could be improved by applying dynamic vertices. For example, if the car is steering to the right, the lane vanishing point is likely to be to the right in a highway (not necessarily in a very curvy local road).
 
-    In order to identify dashed lines as single lines, line fitting was applied by calculating the mean among the individual lines from the Hough transform. The dataset obtained from the individual lines was normalized with a standard deviation of 1.0 and the mean obtained. This ensures removing outliers and accurate average representation/
+#### 5. Perspective Transform: 
+The image is warped to show a birds eye view. The perspective transform applied provides a high viewing angle (longer road measurements) and can be used to detect obstacles to the sides of the car.
 
-    Hough Transform applied
+This was found to be preferable than the project suggested method of applying a local bird's eye view to the lane section only, and is more scalable if the model is expanded to detect markings or objects near the lanes such as crash barriers, or fences using machine learning.
 
-Further Work
 
-Below listed are limitations of the pipeline and algorithms used together with possible solutions to explore:
-
-    The pipeline assumes a linear model for lane detection. This will result in incorrect results when the lane is curved. Polylinear regression models would improve this.
-
-    The pipeline uses a region of interest in identification of lanes to simplify the image processing. This will result in an incorrect result when the car steers sideways from the region of interest, or when the road significantly changes its vanishing point, in hills for example.
-
-    The pipeline would incorrectly detect as lanes, markings or objects near the lanes such as crash barriers, or fences. Machine learning algorithms would improve identification of objects.
-
-    Vehicles positioned at the sides or close to the front of the car could be incorrectly classified as lane markings. Machine learning algorithms would improve identification of objects.
+#### 8. Regression Estimate Value Checks: 
+Smoothing against previous image frame values and checking the distance between left and right lanes provided an improved lane detection. This can be further improved by eliminating outliers (such as those found in shades) incongruent with the shape of lanes or rate of change found in lane directional changes.
 
